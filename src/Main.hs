@@ -4,18 +4,36 @@ import Autofill.Directory.Shuffle
 
 import Data.List
 import Data.Char
--- import Data.Maybe (fromMaybe)
 import System.Console.GetOpt
--- import System.Directory
 import System.Environment
 import System.Posix
 
-data Flag = Verbose | DryRun deriving (Show, Eq)
+data Options = Options {
+               optVerbose    :: Bool
+             , optDryRun     :: Bool
+             , optFileFormat :: String
+             } deriving (Show, Eq)
 
-options :: [OptDescr Flag]
+defaultOptions :: Options
+defaultOptions = Options {
+                           optVerbose    = False
+                         , optDryRun     = False
+                         , optFileFormat = ""
+                         }
+
+options :: [OptDescr (Options -> Options)]
 options = [
-            Option "v" ["verbose"] (NoArg Verbose) "verbose output"
-          , Option "d" ["dry-run"] (NoArg DryRun)  "do not actually do anyting"
+            Option "v" ["verbose"]
+              (NoArg (\opts -> opts { optVerbose = True }))
+              "verbose output"
+
+          , Option "d" ["dry-run"]
+              (NoArg (\opts -> opts { optDryRun = True }))
+              "do not actually do anyting"
+
+          , Option "f" ["format"]
+              (ReqArg (\format opts -> opts { optFileFormat = format }) "FORMAT")
+              "specify file naming format"
           ]
 
 getUsage :: IO String
@@ -26,12 +44,12 @@ getUsage = do
 
     return $ usageInfo header options
 
-parseOptions :: [String] -> IO ([Flag], [String])
+parseOptions :: [String] -> IO (Options, [String])
 parseOptions argv = do
     usage <- getUsage
 
     case getOpt Permute options argv of
-      (o, n, [])    -> return (o, n)
+      (o, n, [])    -> return (foldl (flip id) defaultOptions o, n)
       (_ , _, errs) -> ioError (userError (concat errs ++ usage))
 
 formatSize :: String -> FileOffset
@@ -45,21 +63,21 @@ formatSize ssize =
       (num, unit) = partition isDigit ssize
       size        = read num :: FileOffset
 
-doAutofill :: [Flag] -> [String] -> IO ()
+doAutofill :: Options -> [String] -> IO ()
 doAutofill opts args = do
-    let (size:path:dest:_) = args
-
     files <- getDirectoryRecursive path
-    --files <- getDirectoryContents path
     music <- getMusicTree files
     shuffled <- shuffle music
     autofill <- getAutofillMusic (formatSize size) shuffled
 
     printMusicTree autofill
 
-    if DryRun `elem` opts
+    if optDryRun opts
       then putStrLn "*** Dry run, did nothing."
       else copyFiles dest $ map musicFilePath autofill
+
+    where
+      (size:path:dest:_) = args
 
 main :: IO ()
 main = do
